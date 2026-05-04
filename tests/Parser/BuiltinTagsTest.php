@@ -82,6 +82,8 @@ final class BuiltinTagsTest extends TestCase
         yield 'if' => ['if', "{if \$ok}ok{/if}"];
         yield 'for' => ['for', "{for start=0 to=3 step=1}ok{/for}"];
         yield 'foreach' => ['foreach', "{foreach from=\$items item='item'}ok{/foreach}"];
+        yield 'foreach_as_v' => ['foreach', "{foreach \$items as \$v}ok{/foreach}"];
+        yield 'foreach_as_kv' => ['foreach', "{foreach \$items as \$k => \$v}ok{/foreach}"];
         yield 'while' => ['while', "{while \$keep}ok{/while}"];
         yield 'section' => ['section', "{section name='idx' loop=\$items}ok{/section}"];
         yield 'capture' => ['capture', "{capture name='cap'}ok{/capture}"];

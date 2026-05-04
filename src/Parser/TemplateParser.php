@@ -132,7 +132,11 @@ final class TemplateParser
         $isShorthand = false;
 
         if ($rest !== '') {
-            [$rawArgs, $argDiagnostics] = $exprParser->parseArguments($rest, $token->span, $options->phpVersion);
+            if (strtolower($name) === 'foreach') {
+                [$rawArgs, $argDiagnostics] = $exprParser->parseForeachArguments($rest, $token->span, $options->phpVersion);
+            } else {
+                [$rawArgs, $argDiagnostics] = $exprParser->parseArguments($rest, $token->span, $options->phpVersion);
+            }
             $this->diagnostics = array_merge($this->diagnostics, $argDiagnostics);
 
             foreach ($rawArgs as $arg) {

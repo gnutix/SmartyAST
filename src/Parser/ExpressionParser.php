@@ -92,6 +92,123 @@ final class ExpressionParser
     }
 
     /**
+     * Parse foreach tag arguments, supporting both the legacy named form
+     *   from=$arr item=$v key=$k
+     * and the Smarty 3+ shorthand
+     *   $arr as $v
+     *   $arr as $k => $v
+     *
+     * The shorthand is normalised into synthetic from/item/key arguments so
+     * downstream walkers see the same AST shape regardless of source form.
+     *
+     * @return array{0:list<array{name:?string,value:ExpressionNode,span:SourceSpan}>,1:list<Diagnostic>}
+     */
+    public function parseForeachArguments(string $source, SourceSpan $containerSpan, string $phpVersion = '8.1'): array
+    {
+        $this->tokens = $this->lexer->tokenize($source, $containerSpan->start->offset, $containerSpan->start->line, $containerSpan->start->column);
+        $this->index = 0;
+        $this->diagnostics = [];
+        $this->phpVersion = $phpVersion;
+
+        if (!$this->hasTopLevelAsKeyword()) {
+            return $this->parseArgumentsFromTokens();
+        }
+
+        $args = [];
+        $sourceStart = $this->current()->span->start;
+        $sourceExpr = $this->parseExpression(0);
+        $args[] = [
+            'name' => 'from',
+            'value' => $sourceExpr,
+            'span' => new SourceSpan($sourceStart, $sourceExpr->span->end),
+        ];
+
+        // Consume `as`
+        $this->consume();
+
+        if ($this->current()->type !== 'variable') {
+            $this->diagnostics[] = new Diagnostic(
+                'EXPR017',
+                'Expected variable after `as` in foreach.',
+                Severity::Error,
+                $this->current()->span,
+                true,
+            );
+            return [$args, $this->diagnostics];
+        }
+
+        $firstVar = $this->parseExpression(0);
+
+        if ($this->current()->type === 'operator' && $this->current()->value === '=>') {
+            $this->consume();
+            if ($this->current()->type !== 'variable') {
+                $this->diagnostics[] = new Diagnostic(
+                    'EXPR017',
+                    'Expected variable after `=>` in foreach.',
+                    Severity::Error,
+                    $this->current()->span,
+                    true,
+                );
+                $args[] = [
+                    'name' => 'key',
+                    'value' => $firstVar,
+                    'span' => $firstVar->span,
+                ];
+                return [$args, $this->diagnostics];
+            }
+            $valueVar = $this->parseExpression(0);
+            $args[] = [
+                'name' => 'item',
+                'value' => $valueVar,
+                'span' => $valueVar->span,
+            ];
+            $args[] = [
+                'name' => 'key',
+                'value' => $firstVar,
+                'span' => $firstVar->span,
+            ];
+        } else {
+            $args[] = [
+                'name' => 'item',
+                'value' => $firstVar,
+                'span' => $firstVar->span,
+            ];
+        }
+
+        // Allow trailing named arguments (e.g. name='loop').
+        $trailing = $this->collectRemainingArguments();
+        foreach ($trailing as $arg) {
+            $args[] = $arg;
+        }
+
+        return [$args, $this->diagnostics];
+    }
+
+    private function hasTopLevelAsKeyword(): bool
+    {
+        $depth = 0;
+        for ($i = $this->index; $i < count($this->tokens); $i++) {
+            $tok = $this->tokens[$i];
+            if ($tok->type === 'eof') {
+                return false;
+            }
+            if (in_array($tok->value, ['(', '[', '{'], true)) {
+                $depth++;
+                continue;
+            }
+            if (in_array($tok->value, [')', ']', '}'], true)) {
+                $depth = max(0, $depth - 1);
+                continue;
+            }
+            if ($depth === 0 && $tok->type === 'identifier' && strtolower($tok->value) === 'as') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @return array{0:list<array{name:?string,value:ExpressionNode,span:SourceSpan}>,1:list<Diagnostic>}
      */
     public function parseArguments(string $source, SourceSpan $containerSpan, string $phpVersion = '8.1'): array
@@ -100,6 +217,24 @@ final class ExpressionParser
         $this->index = 0;
         $this->diagnostics = [];
         $this->phpVersion = $phpVersion;
+
+        return $this->parseArgumentsFromTokens();
+    }
+
+    /**
+     * @return array{0:list<array{name:?string,value:ExpressionNode,span:SourceSpan}>,1:list<Diagnostic>}
+     */
+    private function parseArgumentsFromTokens(): array
+    {
+        $args = $this->collectRemainingArguments();
+        return [$args, $this->diagnostics];
+    }
+
+    /**
+     * @return list<array{name:?string,value:ExpressionNode,span:SourceSpan}>
+     */
+    private function collectRemainingArguments(): array
+    {
         $args = [];
 
         while ($this->current()->type !== 'eof') {
@@ -137,7 +272,7 @@ final class ExpressionParser
             }
         }
 
-        return [$args, $this->diagnostics];
+        return $args;
     }
 
     private function parseExpression(int $minPrecedence): ExpressionNode
