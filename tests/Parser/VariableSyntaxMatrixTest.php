@@ -90,6 +90,16 @@ final class VariableSyntaxMatrixTest extends TestCase
             ['{func var="test {time()} test"}'],
             ['{func var="test {counter} test"}'],
             ['{func var="variable foo is {if !$foo}not {/if} defined"}'],
+            ['{$item@first}'],
+            ['{$item@last}'],
+            ['{$item@index}'],
+            ['{$item@iteration}'],
+            ['{$item@total}'],
+            ['{$item@show}'],
+            ['{$item@key}'],
+            ['{$arr|@count}'],
+            ['{$arr|@count > 0}'],
+            ['{$arr|@json_encode|escape:"html"}'],
         ];
     }
 

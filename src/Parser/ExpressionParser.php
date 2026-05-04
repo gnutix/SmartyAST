@@ -10,6 +10,7 @@ use SmartyAst\Ast\BinaryExpressionNode;
 use SmartyAst\Ast\CallExpressionNode;
 use SmartyAst\Ast\ErrorExpressionNode;
 use SmartyAst\Ast\ExpressionNode;
+use SmartyAst\Ast\ForeachIterationPropertyNode;
 use SmartyAst\Ast\IdentifierExpressionNode;
 use SmartyAst\Ast\LiteralExpressionNode;
 use SmartyAst\Ast\NamedArgumentExpressionNode;
@@ -391,10 +392,48 @@ final class ExpressionParser
                 continue;
             }
 
+            if ($token->value === '@' && $token->type === 'operator') {
+                $left = $this->parseForeachIterationProperty($left);
+                continue;
+            }
+
             break;
         }
 
         return $left;
+    }
+
+    private function parseForeachIterationProperty(ExpressionNode $left): ExpressionNode
+    {
+        $atToken = $this->consume();
+        $propertyToken = $this->current();
+
+        if ($propertyToken->type !== 'identifier') {
+            $this->diagnostics[] = new Diagnostic(
+                'EXPR016',
+                'Expected foreach iteration property name after @.',
+                Severity::Error,
+                $atToken->span,
+                true,
+            );
+            return $left;
+        }
+
+        $this->consume();
+        $name = $propertyToken->value;
+        $span = new SourceSpan($left->span->start, $propertyToken->span->end);
+
+        if (!in_array($name, ForeachIterationPropertyNode::PROPERTIES, true)) {
+            $this->diagnostics[] = new Diagnostic(
+                'EXPR016',
+                sprintf("Unknown foreach iteration property '@%s'.", $name),
+                Severity::Error,
+                new SourceSpan($atToken->span->start, $propertyToken->span->end),
+                true,
+            );
+        }
+
+        return new ForeachIterationPropertyNode($span, $left, $name);
     }
 
     private function parseModifiers(ExpressionNode $base): ExpressionNode
@@ -404,6 +443,11 @@ final class ExpressionParser
 
         while ($this->current()->value === '|') {
             $pipe = $this->consume();
+            // Smarty 2 allowed an `@` prefix on modifiers (e.g. `|@count`) to opt out of
+            // automatic array-iteration; Smarty 3 still parses it for back-compat.
+            if ($this->current()->type === 'operator' && $this->current()->value === '@') {
+                $this->consume();
+            }
             $name = $this->consume();
             if ($name->type !== 'identifier') {
                 $this->diagnostics[] = new Diagnostic('EXPR005', 'Expected modifier name after |.', Severity::Error, $name->span, true);
